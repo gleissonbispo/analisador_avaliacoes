@@ -1,46 +1,102 @@
-# 🤖 Analisador de Avaliações com LLM Local
+![Analisador de avaliações de colaboradores com LLM local](docs/capa.png)
 
-**Aplicação completa para análise inteligente de avaliações de colaboradores**, com extração de insights automatizados como **sentimento**, **palavras-chave**, **resumo**, **ponto principal** e **nota de satisfação**.  
-O projeto utiliza **LLMs rodando localmente via Ollama**, integrados com **LangChain**, **Pydantic** e uma interface intuitiva com **Streamlit**.
+# Analisador de avaliações de colaboradores com LLM local
 
----
+Aplicação em Streamlit que lê o texto livre de uma avaliação (pesquisa de clima, entrevista de desligamento, comentário em site de empregador) e devolve cinco campos estruturados: sentimento, ponto principal, palavra-chave, resumo e nota de satisfação. O modelo roda na própria máquina, via Ollama.
 
-## 🚀 Demonstração
+![Demonstração](docs/AnaliseAvaliacoes.gif)
 
-![LLM-RH-Preview](docs/AnaliseAvaliacoes.gif) <!-- substitua por sua própria imagem ou gif do app -->
+## Problema
 
----
+Pesquisa de clima e entrevista de desligamento geram muito texto aberto. Ler tudo à mão não escala, e a análise de sentimento clássica entrega só um rótulo de positivo ou negativo, sem dizer do que a pessoa está falando. Além disso, comentário de colaborador é dado sensível: mandar esse texto para uma API externa costuma esbarrar em segurança da informação e LGPD.
 
-## 🧰 Tecnologias Utilizadas
+## Solução
 
-| Categoria             | Ferramentas & Bibliotecas                              |
-|----------------------|--------------------------------------------------------|
-| **LLM Local**        | [Ollama](https://ollama.com) · Modelos: `gemma3:12b`|
-| **Orquestração**     | LangChain · Pydantic (`with_structured_output`)        |
-| **Frontend**         | Streamlit                                              |
-| **Visualização**     | Matplotlib · WordCloud · Pandas                        |
-| **Backend**          | Python                                                 |
+O texto vai para um LLM local com saída estruturada. Em vez de pedir uma resposta livre e tentar interpretar depois, o app define um schema Pydantic e usa `with_structured_output` do LangChain, que obriga o modelo a responder nesse formato:
 
----
+| Campo | Tipo | O que traz |
+|---|---|---|
+| `sentimento` | texto | Muito Positivo, Positivo, Neutro, Negativo ou Muito Negativo |
+| `ponto_principal` | texto | O ponto mais relevante citado na avaliação |
+| `palavra_chave` | texto | Uma palavra-chave extraída do texto |
+| `resumo` | texto | A avaliação em uma frase |
+| `nota_satisfacao` | inteiro | Satisfação estimada, de 0 a 10 |
 
-## 🧱 Funcionalidades
+Com o resultado em campos, dá para somar, filtrar e cruzar com outras bases, o que um parágrafo de resposta livre não permite.
 
-### 🔹 Tela 1: Análise Individual
-- Input manual da avaliação
-- Botão para gerar uma avaliação fictícia com o LLM
-- Saída estruturada com:
-  - 🎯 **Sentimento geral**
-  - 🔑 **Palavra-chave**
-  - 📌 **Ponto principal**
-  - 🧾 **Resumo**
-  - 📉 **Nota de satisfação (0 a 10)**
+## Arquitetura
 
-## 🧪 Exemplo de Input
+```mermaid
+flowchart LR
+    A["Texto da avaliação<br>Streamlit"] --> B["ChatOllama<br>gemma3:12b"]
+    S["Schema Pydantic<br>AvaliacaoOutput"] -.->|with_structured_output| B
+    B --> C["Objeto validado<br>5 campos"]
+    C --> D["Painel de resultado"]
+```
+
+Todo o código está em `analise_avaliacoes.py` (cerca de 90 linhas): o schema, a inicialização do modelo e a interface.
+
+## Como rodar
+
+Pré-requisitos: Python 3.10 ou superior e o [Ollama](https://ollama.com) instalado.
+
+```bash
+# 1. Baixe o modelo (cerca de 8 GB)
+ollama pull gemma3:12b
+
+# 2. Clone e instale
+git clone https://github.com/gleissonbispo/analisador_avaliacoes.git
+cd analisador_avaliacoes
+python -m venv .venv && source .venv/bin/activate   # no Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+
+# 3. Suba a aplicação
+streamlit run analise_avaliacoes.py
+```
+
+O app abre em `http://localhost:8501`. Para usar outro modelo, troque o nome em `ChatOllama(model="gemma3:12b")`. O modelo precisa suportar saída estruturada no Ollama.
+
+## Exemplo de uso
+
+Entrada:
 
 ```text
-Trabalhar nesta empresa foi, infelizmente, uma das experiências mais frustrantes da minha carreira. Desde o primeiro dia, ficou claro que a gestão não tinha qualquer preparo para liderar equipes, sendo constantemente autoritária, sem abertura para diálogo e ignorando completamente as sugestões dos colaboradores. O ambiente de trabalho é altamente tóxico, com uma cultura que premia os mais bajuladores em vez dos mais competentes.
-A sobrecarga é absurda — constantemente somos pressionados a cumprir metas irreais sem qualquer suporte ou estrutura. O departamento de RH parece estar de enfeite, pois qualquer reclamação simplesmente é ignorada ou, pior ainda, usada contra o colaborador em futuras avaliações. Não existe plano de carreira, e promoções acontecem apenas por favoritismo.
-Além disso, os benefícios são bem abaixo da média de mercado, o salário não é competitivo e os reajustes salariais são raros, mesmo com uma inflação crescente.
-A comunicação interna é falha e desorganizada, gerando retrabalho constante. O nível de estresse é altíssimo, e é comum ver pessoas com sintomas de burnout, sem que a empresa faça absolutamente nada a respeito. A alta liderança vive em uma bolha, alheia à realidade dos times operacionais, tomando decisões sem considerar o impacto real nas pessoas.
-Em resumo, é um ambiente de trabalho exaustivo, desmotivador e sem perspectiva de crescimento. Minha recomendação sincera para quem valoriza saúde mental, reconhecimento profissional e respeito no ambiente corporativo: procure outra empresa.
+A empresa oferece bons benefícios e o time é colaborativo, mas a liderança é
+desorganizada. As metas mudam toda semana, não existe plano de carreira e as
+promoções saem por proximidade com o gestor. Estou procurando outra oportunidade.
 ```
+
+Saída esperada (o conteúdo varia a cada execução, a estrutura não):
+
+```json
+{
+  "sentimento": "Negativo",
+  "ponto_principal": "Liderança desorganizada e ausência de plano de carreira",
+  "palavra_chave": "liderança",
+  "resumo": "Bons benefícios e time colaborativo não compensam a falta de direção e de critério nas promoções.",
+  "nota_satisfacao": 4
+}
+```
+
+## Limitações
+
+- Analisa uma avaliação por vez. Não há processamento em lote nem visão agregada.
+- O rótulo de sentimento e a nota são estimativas do modelo, sem calibração contra uma base anotada. Servem para triagem, não para decisão individual sobre uma pessoa.
+- O schema descreve os cinco rótulos de sentimento, mas não os impõe como enumeração: o modelo pode devolver uma variação fora da lista.
+- Nenhum resultado é salvo.
+- Não há testes automatizados.
+
+## Próximos passos
+
+- Upload de CSV para analisar uma pesquisa inteira e exportar o resultado.
+- Agregações por área, tema e período.
+- Trocar o campo de sentimento por `Literal` e a nota por um inteiro com faixa validada.
+- Avaliar o modelo contra uma amostra anotada por pessoas.
+
+## Privacidade
+
+O texto não sai da máquina: a inferência acontece no Ollama local e o app não grava nada em disco.
+
+## Autor
+
+Gleisson Bispo · [gleissonbispo.com.br](https://gleissonbispo.com.br) · [LinkedIn](https://www.linkedin.com/in/gleissonbispo)
